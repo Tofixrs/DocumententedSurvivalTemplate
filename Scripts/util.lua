@@ -151,7 +151,7 @@ function append(a, b)
     end
 end
 
---http://lua-users.org/wiki/oSwitchStatement
+---http://lua-users.org/wiki/oSwitchStatement
 ---TODO: add typings later cuz this is a pain to type
 function switch(table)
     table.case = function(self, caseVariable)
@@ -165,6 +165,29 @@ function switch(table)
         end
     end
     return table
+end
+
+---Improved version of a switch i added for my sake. Sadly couldnt get typings to work
+---@generic T
+---@generic U
+---@param case T
+---@alias case (fun(case: T): U) | U
+---@alias returnFunc fun(codetable: {[T]: case, default: case}): U
+---@return returnFunc
+function switch2(case)
+    ---@type returnFunc
+    local fun = function(codetable)
+        local f = codetable[case] or codetable.default
+        if f then
+            if type(f) == "function" then
+                return f(case)
+            else
+                return f
+            end
+        end
+        return nil
+    end
+    return fun
 end
 
 ---adds the value to the array if it doesnt exist
@@ -272,7 +295,7 @@ function kvpairs(t)
     end
 end
 
----Reversed ipairs
+---Reversed [ipairs]
 ---@generic T
 ---@param a T[]
 ---@return fun(a: T[], i: integer)
@@ -319,6 +342,9 @@ function reverse(array)
     end
 end
 
+---@generic T
+---@param orig T
+---@return T
 function shallowcopy(orig)
     local orig_type = type(orig)
     local copy
@@ -333,6 +359,14 @@ function shallowcopy(orig)
     return copy
 end
 
+-- #region complicated math stuff that i will do comments for later TODO
+
+---@param line0 Vec3
+---@param line1 Vec3
+---@param point Vec3
+---@return Vec3
+---@return number
+---@return number
 function closestPointOnLineSegment(line0, line1, point)
     local vec = line1 - line0
     local len = vec:length()
@@ -341,6 +375,9 @@ function closestPointOnLineSegment(line0, line1, point)
     return line0 + vec * t, t, len
 end
 
+---@param linePoints Vec3[]
+---@param point Vec3
+---@return nil | { i: number, pt: Vec3, t: number, len: number}
 function closestPointInLines(linePoints, point)
     local closest
     if #linePoints > 1 then
@@ -359,6 +396,9 @@ function closestPointInLines(linePoints, point)
     return closest
 end
 
+---@param linePoints Vec3[]
+---@param point Vec3
+---@return nil | { i: number, pt: Vec3, t: number, len: number}
 function closestPointInLinesSkipFirst(linePoints, point)
     local closest
     if #linePoints > 1 then
@@ -377,7 +417,12 @@ function closestPointInLinesSkipFirst(linePoints, point)
     return closest
 end
 
+---@alias line {p0: Vec3, p1: Vec3, length: number}
+---@param linePoints Vec3[]
+---@return integer
+---@return line[]
 function lengthOfLines(linePoints)
+    ---@type line[]
     local lines = {}
     local totalLength = 0
     if #linePoints > 1 then
@@ -392,45 +437,30 @@ function lengthOfLines(linePoints)
     return totalLength, lines
 end
 
+---@param linePoints Vec3
+---@param point Vec3
+---@return number | nil
 function closestFractionInLines(linePoints, point)
     if #linePoints > 1 then
         local closest = closestPointInLines(linePoints, point)
+
+        ---@diagnostic disable-next-line: need-check-nil
         return ((closest.i - 1) + closest.t) / #linePoints
     elseif #linePoints == 1 then
         return 1.0
     end
 end
 
-function pointInLines(linePoints, fraction)
-    local totalLength, lines = lengthOfLines(linePoints)
-
-    if totalLength == 0 then
-        return linePoints[1]
-    end
-
-    local point
-    for i = 1, #lines do
-        lines[i].minFraction = 0.0
-        lines[i].maxFraction = lines[i].length / totalLength
-        if lines[i - 1] then
-            lines[i].minFraction = lines[i].minFraction + lines[i - 1].maxFraction
-            lines[i].maxFraction = lines[i].maxFraction + lines[i - 1].maxFraction
-        end
-        if i == #lines then
-            lines[i].maxFraction = 1.0
-        end
-
-        if fraction >= lines[i].minFraction and fraction <= lines[i].maxFraction then
-            local f = (fraction - lines[i].minFraction) / (lines[i].maxFraction - lines[i].minFraction)
-            point = sm.vec3.lerp(lines[i].p0, lines[i].p1, f)
-            break
-        end
-    end
-
-    return point
-end
-
--- p = progress from first point (1) to last point (#points)
+---p = progress from first point (1) to last point (#points)
+---@param points Vec3[]
+---@param p number
+---@param distances number[]
+---@return Vec3
+---@return Vec3
+---@return Vec3
+---@return Vec3
+---@return Vec3
+---@return Vec3
 function spline(points, p, distances)
     assert(#points > 1, "Must have at least 2 points")
     local i0 = math.floor(p)
@@ -481,6 +511,9 @@ function spline(points, p, distances)
     return pt1_3, pt1_2, pt2_2, pt1_1, pt2_1, pt3_1
 end
 
+---@param body Body
+---@param position Vec3
+---@return Shape
 function getClosestShape(body, position)
     local closestShape = nil
     local closestDistance = math.huge
@@ -501,70 +534,10 @@ function getClosestShape(body, position)
     return closestShape
 end
 
-function EstimateBezierLength(points, samples)
-    samples = samples and samples or 32
-    samples = math.min(samples, 64)
-    if #points == 0 or samples < 2 then
-        return 0
-    end
-
-    local step = 1.0 / (samples - 1)
-    local latestPosition = points[1]
-    local length = 0.0
-    for i = 2, samples do
-        local position = BezierPosition(points, step * i)
-        length = length + (latestPosition - position):length()
-        latestPosition = position
-    end
-
-    return length
-end
-
-local function bezierPositionRecursive(points, p, startIndex, endIndex)
-    if startIndex == endIndex then
-        return points[startIndex]
-    end
-
-    local p1 = bezierPositionRecursive(points, p, startIndex, endIndex - 1)
-    local p2 = bezierPositionRecursive(points, p, startIndex + 1, endIndex)
-    return sm.vec3.lerp(p1, p2, p)
-end
-
-function BezierPosition(points, p)
-    if #points == 0 then
-        return sm.vec3.zero()
-    elseif #points == 1 then
-        return points[#points]
-    end
-
-    local p1 = bezierPositionRecursive(points, p, 1, #points - 1)
-    local p2 = bezierPositionRecursive(points, p, 2, #points)
-
-    return sm.vec3.lerp(p1, p2, p)
-end
-
-local function bezierRotationRecursive(rotations, p, startIndex, endIndex)
-    if startIndex == endIndex then
-        return rotations[startIndex]
-    end
-
-    local q1 = bezierRotationRecursive(rotations, p, startIndex, endIndex - 1)
-    local q2 = bezierRotationRecursive(rotations, p, startIndex + 1, endIndex)
-    return sm.quat.slerp(q1, q2, p)
-end
-
-function BezierRotation(rotations, p)
-    if #rotations == 0 then
-        return sm.quat.identity()
-    elseif #rotations == 1 then
-        return rotations[#rotations]
-    end
-
-    local q1 = bezierRotationRecursive(rotations, p, 1, #rotations - 1)
-    local q2 = bezierRotationRecursive(rotations, p, 2, #rotations)
-    return sm.quat.slerp(q1, q2, p)
-end
-
+---@param fromDirection Vec3
+---@param toDirection Vec3
+---@param p number
+---@return Vec3
 function lerpDirection(fromDirection, toDirection, p)
     local cameraHeading = math.atan2(-fromDirection.x, fromDirection.y)
     local cameraPitch = math.asin(fromDirection.z)
@@ -586,6 +559,11 @@ function lerpDirection(fromDirection, toDirection, p)
     return newCameraDirection
 end
 
+---@param currentDirection Vec3
+---@param desiredDirection Vec3
+---@param dt number Delta time since the last frame.
+---@param speed number
+---@return Vec3
 function magicDirectionInterpolation(currentDirection, desiredDirection, dt, speed)
     -- Smooth heading and pitch movement
     speed = speed or (1.0 / 6.0)
@@ -593,37 +571,76 @@ function magicDirectionInterpolation(currentDirection, desiredDirection, dt, spe
     return lerpDirection(currentDirection, desiredDirection, blend)
 end
 
+---@param currentPosition Vec3
+---@param desiredPosition Vec3
+---@param dt number Delta time since the last frame.
+---@param speed number
+---@return Vec3
 function magicPositionInterpolation(currentPosition, desiredPosition, dt, speed)
     speed = speed or (1.0 / 6.0)
     local blend = 1 - math.pow(1 - speed, dt * 60)
     return sm.vec3.lerp(currentPosition, desiredPosition, blend)
 end
 
+---@param currentValue number
+---@param desiredValue number
+---@param dt number Delta time since the last frame.
+---@param speed number
+---@return number
 function magicInterpolation(currentValue, desiredValue, dt, speed)
     speed = speed or (1.0 / 6.0)
     local blend = 1 - math.pow(1 - speed, dt * 60)
     return sm.util.lerp(currentValue, desiredValue, blend)
 end
 
+---@param p number
+---@return number
 function TriangleCurve(p)
     local res = math.max(math.min(p, 1.0), 0.0)
     return 1.0 - math.abs(res * 2 - 1.0)
 end
 
+-- #endregion
+
+---Checks if uuid provided is any of the drill or saw
+---@param shapeUuid Uuid
+---@return boolean
 function isDangerousCollisionShape(shapeUuid)
     return isAnyOf(shapeUuid, { obj_powertools_drill, obj_powertools_sawblade })
 end
 
+---Checks if uuid provided is any of small scrap wheel, small wheel, big wheel, crane wheel
+---@param shapeUuid Uuid
+---@return boolean
 function isSafeCollisionShape(shapeUuid)
     return isAnyOf(shapeUuid,
         { obj_scrap_smallwheel, obj_vehicle_smallwheel, obj_vehicle_bigwheel, obj_spaceship_cranewheel })
 end
 
+---Checks if Uuid provided is one of a tape projectile
+---@param projectileUuid Uuid
+---@return boolean
 function isTrapProjectile(projectileUuid)
-    local TrapProjectiles = { projectile_tape, projectile_explosivetape }
-    return isAnyOf(projectileUuid, TrapProjectiles)
+    return isAnyOf(projectileUuid, { projectile_tape, projectile_explosivetape })
 end
 
+---Checks if uuid provided is one of
+---[obj_harvest_metal],
+---[obj_robotparts_tapebothead01],
+---[obj_robotparts_tapebottorso01],
+---[obj_robotparts_tapebotleftarm01],
+---[obj_robotparts_tapebotshooter],
+---[obj_robotparts_haybothead],
+---[obj_robotparts_haybotbody],
+---[obj_robotparts_haybotfork],
+---[obj_robotpart_totebotbody],
+---[obj_robotpart_totebotleg],
+---[obj_robotparts_farmbotpart_head],
+---[obj_robotparts_farmbotpart_cannonarm],
+---[obj_robotparts_farmbotpart_drill],
+---[obj_robotparts_farmbotpart_scytharm]
+---@param shapeUuid Uuid
+---@return boolean
 function isIgnoreCollisionShape(shapeUuid)
     return isAnyOf(shapeUuid, {
         obj_harvest_metal,
@@ -647,6 +664,8 @@ function isIgnoreCollisionShape(shapeUuid)
     })
 end
 
+---Returns the hour and minute string of the day in 24 hour format
+---@return string
 function getTimeOfDayString()
     local timeOfDay = sm.game.getTimeOfDay()
     local hour = (timeOfDay * 24) % 24
@@ -659,6 +678,9 @@ function getTimeOfDayString()
     return hour1 .. hour2 .. ":" .. minute1 .. minute2
 end
 
+---Formats seconds in a countdown fromat D:HH:MM (in sm time)
+---@param seconds number
+---@return string
 function formatCountdown(seconds)
     local time = seconds / DAYCYCLE_TIME
     local days = math.floor((time * 24) / 24)
@@ -672,6 +694,7 @@ function formatCountdown(seconds)
     return days .. "d " .. hour1 .. hour2 .. "h " .. minute1 .. minute2 .. "m"
 end
 
+---@return number
 function getDayCycleFraction()
     local time = sm.game.getTimeOfDay()
 
@@ -693,13 +716,16 @@ function getDayCycleFraction()
     return 1.0 - night
 end
 
+---@param dayCycleFraction number
+---@return integer
 function getTicksUntilDayCycleFraction(dayCycleFraction)
     local time = sm.game.getTimeOfDay()
     local timeDiff = (time > dayCycleFraction) and (dayCycleFraction - time) + 1.0 or (dayCycleFraction - time)
     return math.floor(timeDiff * DAYCYCLE_TIME * 40 + 0.5)
 end
 
--- Brute force testing of a function for randomizing integer ranges
+---Brute force testing of a function for randomizing integer ranges
+---@param fn fun(): number
 function testRandomFunction(fn)
     local a = {}
     local sum = 0
@@ -715,42 +741,66 @@ function testRandomFunction(fn)
     print("avg =", sum / 1000000)
 end
 
+---Returns a random number with [sm.noise.randomNormalDistribution] used for random stack amount
+---@param min number min number returned
+---@param mean number the avarage number returned
+---@param max number the max number returned
+---@return number
 function randomStackAmount(min, mean, max)
     return clamp(round(sm.noise.randomNormalDistribution(mean, (max - min + 1) * 0.25)), min, max)
 end
 
+---Returns a random number between 1 and 2 with a avarage of 1.
+---@return number
 function randomStackAmount2()
     return randomStackAmount(1, 1, 2)
 end
 
+---Returns a random number between 1 and 3 with a avarage of 2.
+---@return number
 function randomStackAmountAvg2()
     return randomStackAmount(1, 2, 3)
 end
 
+---Returns a random number between 2 and 4 with a avarage of 3.
+---@return number
 function randomStackAmountAvg3()
     return randomStackAmount(2, 3, 4)
 end
 
+---Returns a random number between 2 and 5 with a avarage of 3.5
+---@return number
 function randomStackAmount5()
     return randomStackAmount(2, 3.5, 5)
 end
 
+---Returns a random number between 3 and 7 with a avarage of 5
+---@return number
 function randomStackAmountAvg5()
     return randomStackAmount(3, 5, 7)
 end
 
+---Returns a random number between 5 and 10 with a avarage of 7.5
+---@return number
 function randomStackAmount10()
     return randomStackAmount(5, 7.5, 10)
 end
 
+---Returns a random number between 5 and 15 with a avarage of 10
+---@return number
 function randomStackAmountAvg10()
     return randomStackAmount(5, 10, 15)
 end
 
+---Returns a random number between 10 and 20 with a avarage of 20
+---@return number
 function randomStackAmount20()
     return randomStackAmount(10, 15, 20)
 end
 
+---Gets the tool owner pos
+---@param tool Tool
+---@return Vec3 the worldPos of the player character
 function GetOwnerPosition(tool)
     local playerPosition = sm.vec3.new(0, 0, 0)
     local player = tool:getOwner()
@@ -760,6 +810,18 @@ function GetOwnerPosition(tool)
     return playerPosition
 end
 
+---@param self Character
+---@param other Character | Shape
+---@param vCollisionPosition Vec3 Doesnt do anything
+---@param vPointVelocitySelf Vec3
+---@param vPointVelocityOther Vec3
+---@param vCollisionNormal Vec3
+---@param maxhp number
+---@param velDiffThreshold number
+---@return integer
+---@return integer
+---@return Vec3
+---@return Vec3
 function CharacterCollision(self, other, vCollisionPosition, vPointVelocitySelf, vPointVelocityOther, vCollisionNormal,
                             maxhp, velDiffThreshold)
     assert(type(self) == "Character")
@@ -899,6 +961,9 @@ function CharacterCollision(self, other, vCollisionPosition, vPointVelocitySelf,
     return damage, tumbleTicks, vTumbleVelocity, vImpactReaction
 end
 
+---@param targetCharacter Character
+---@param direction Vec3
+---@param power number
 function ApplyCharacterImpulse(targetCharacter, direction, power)
     local impulseDirection = direction:safeNormalize(sm.vec3.zero())
     if impulseDirection:length2() >= FLT_EPSILON * FLT_EPSILON then
@@ -916,6 +981,9 @@ function ApplyCharacterImpulse(targetCharacter, direction, power)
     end
 end
 
+---@param targetCharacter Character
+---@param direction Vec3
+---@param power number
 function ApplyKnockback(targetCharacter, direction, power)
     local impulseDirection = sm.vec3.new(direction.x, direction.y, 0):safeNormalize(sm.vec3.zero())
     if impulseDirection:length2() >= FLT_EPSILON * FLT_EPSILON then
@@ -926,6 +994,10 @@ function ApplyKnockback(targetCharacter, direction, power)
     ApplyCharacterImpulse(targetCharacter, impulseDirection, power)
 end
 
+---@param worldPosition Vec3
+---@param maxDistance number
+---@param world World
+---@return Player|nil
 function GetClosestPlayer(worldPosition, maxDistance, world)
     local closestPlayer = nil
     local closestDd = maxDistance and (maxDistance * maxDistance) or math.huge
@@ -952,10 +1024,15 @@ local ToolItems = {
     [tostring(tool_handbook)] = obj_tool_handbook,
     ["ed185725-ea12-43fc-9cd7-4295d0dbf88b"] = obj_tool_sledgehammer, --Creative sledgehammer
 }
+---@param toolUuid Uuid
+---@return Uuid
 function GetToolProxyItem(toolUuid)
     return ToolItems[tostring(toolUuid)]
 end
 
+---finds the first Interactable with the provided uuid in all bodies
+---@param uuid string shape uuid as a string
+---@return Interactable | nil
 function FindFirstInteractable(uuid)
     local bodies = sm.body.getAllBodies()
     for _, body in ipairs(bodies) do
@@ -967,6 +1044,11 @@ function FindFirstInteractable(uuid)
     end
 end
 
+---Finds first Interactable with the provided uuid in a cell
+---@param uuid string shape uuid as a string
+---@param x integer Cell X pos
+---@param y integer Cell y pos
+---@return Interactable | nil
 function FindFirstInteractableWithinCell(uuid, x, y)
     local bodies = sm.body.getAllBodies()
     for _, body in ipairs(bodies) do
@@ -981,6 +1063,11 @@ function FindFirstInteractableWithinCell(uuid, x, y)
     end
 end
 
+---Finds all Interactables with provided uuid
+---@param uuid string shape uuid as a string
+---@param x integer Cell x pos
+---@param y integer Cell y pos
+---@return Interactable[]
 function FindInteractablesWithinCell(uuid, x, y)
     local tbl = {}
     local bodies = sm.body.getAllBodies()
@@ -997,6 +1084,11 @@ function FindInteractablesWithinCell(uuid, x, y)
     return tbl
 end
 
+---@param constructionFilters ("terrainSurface" | "terrainAsset" | "body" | "joint")[]
+---@alias bool boolean
+---@return bool | boolean
+---@return Vec3 | nil
+---@return Vec3 | nil
 function ConstructionRayCast(constructionFilters)
     local valid, result = sm.localPlayer.getRaycast(7.5)
     if valid then
@@ -1022,36 +1114,54 @@ function ConstructionRayCast(constructionFilters)
     return false, nil, nil
 end
 
+---@alias getWorldObj Character | Body | Harvestable | Player | Unit | Shape | Interactable | Joint | World
+
+
+---Get the world of an objest provided
+---@param userdataObject getWorldObj
+---@return World | nil
 local function getWorld(userdataObject)
-    if userdataObject and isAnyOf(type(userdataObject), { "Character", "Body", "Harvestable", "Player", "Unit", "Shape", "Interactable", "Joint", "World" }) then
-        if sm.exists(userdataObject) then
-            if type(userdataObject) == "Character" or type(userdataObject) == "Body" or type(userdataObject) == "Harvestable" then
-                return userdataObject:getWorld()
-            elseif type(userdataObject) == "Player" or type(userdataObject) == "Unit" then
-                if userdataObject.character then
-                    return userdataObject.character:getWorld()
-                end
-            elseif type(userdataObject) == "Shape" or type(userdataObject) == "Interactable" then
-                if userdataObject.body then
-                    return userdataObject.body:getWorld()
-                end
-            elseif type(userdataObject) == "Joint" then
-                local hostShape = userdataObject:getShapeA()
-                if hostShape and hostShape.body then
-                    return hostShape.body:getWorld()
-                end
-            elseif type(userdataObject) == "World" then
-                return userdataObject
+    if not userdataObject or not isAnyOf(type(userdataObject), { "Character", "Body", "Harvestable", "Player", "Unit", "Shape", "Interactable", "Joint", "World" }) then
+        sm.log.warning("Tried to get world for an unsupported type: " .. type(userdataObject))
+        return nil
+    end
+    if sm.exists(userdataObject) then return nil end
+
+    return (switch2(type(userdataObject)) {
+        ["Character"] = userdataObject:getWorld(),
+        ["Body"] = userdataObject:getWorld(),
+        ["Harvestable"] = userdataObject:getWorld(),
+        ["Player"] = function()
+            if userdataObject.character then return userdataObject.character:getWorld() end
+            return nil
+        end,
+        ["Unit"] = function()
+            if userdataObject.character then return userdataObject.character:getWorld() end
+            return nil
+        end,
+        ["Shape"] = function()
+            if userdataObject.body then return userdataObject.body:getWorld() end
+            return nil
+        end,
+        ["Interactable"] = function()
+            if userdataObject.body then return userdataObject.body:getWorld() end
+            return nil
+        end,
+        ["Joint"] = function()
+            local hostShape = userdataObject:getShapeA()
+            if hostShape and hostShape.body then
+                return hostShape.body:getWorld()
             end
             return nil
-        else
-            return nil
-        end
-    end
-    sm.log.warning("Tried to get world for an unsupported type: " .. type(userdataObject))
-    return nil
+        end,
+        ["World"] = userdataObject
+    })
 end
 
+---Checks if two objects are in the same world
+---@param userdataObjectA getWorldObj
+---@param userdataObjectB getWorldObj
+---@return boolean
 function InSameWorld(userdataObjectA, userdataObjectB)
     local worldA = getWorld(userdataObjectA)
     local worldB = getWorld(userdataObjectB)
@@ -1060,6 +1170,11 @@ function InSameWorld(userdataObjectA, userdataObjectB)
     return result
 end
 
+---@param worldPosition Vec3
+---@param radius number
+---@param attackLevel integer
+---@return Shape | nil
+---@return Vec3 | nil
 function FindAttackableShape(worldPosition, radius, attackLevel)
     local nearbyShapes = sm.shape.shapesInSphere(worldPosition, radius)
     local destructableNearbyShapes = {}
@@ -1081,6 +1196,9 @@ function FindAttackableShape(worldPosition, radius, attackLevel)
     return nil, nil
 end
 
+---@param array number[]
+---@param targetValue number
+---@return integer
 function BinarySearchInterval(array, targetValue)
     local lowerBound = 1
     local upperBound = #array
@@ -1103,6 +1221,11 @@ function BinarySearchInterval(array, targetValue)
     return upperBound -- No exact value, return the interval index
 end
 
+---@param vector Vec3
+---@param xAxis Vec3
+---@param zAxis Vec3
+---@param inverse boolean
+---@return Vec3
 function RotateAxis(vector, xAxis, zAxis, inverse)
     local yAxis = zAxis:cross(xAxis)
     if inverse then
@@ -1120,6 +1243,13 @@ function RotateAxis(vector, xAxis, zAxis, inverse)
     )
 end
 
+---@param minSticky Vec3
+---@param maxSticky Vec3
+---@param xAxis Vec3
+---@param zAxis Vec3
+---@param inverse boolean
+---@return Vec3
+---@return Vec3
 function RotateSticky(minSticky, maxSticky, xAxis, zAxis, inverse)
     local minFlags = RotateAxis(minSticky, xAxis, zAxis, inverse)
     local maxFlags = RotateAxis(maxSticky, xAxis, zAxis, inverse)
@@ -1144,6 +1274,12 @@ local NormalDifficultySettings =
 {
     playerTakeDamageMultiplier = 1.0
 }
+
+---@class DifficultySettings
+---@field playerTakeDamageMultiplier number
+
+---Gets the current selected difficulty settings
+---@return DifficultySettings
 function GetDifficultySettings()
     local difficulties = { EasyDifficultySettings, NormalDifficultySettings }
     local difficultyIndex = sm.game.getDifficulty()
@@ -1155,6 +1291,11 @@ function GetDifficultySettings()
     return difficulties[difficultyIndex]
 end
 
+---@param character Character
+---@param bone string
+---@param debrisEffect string
+---@param offsetPos Vec3
+---@param offsetRot Quat
 function SpawnDebris(character, bone, debrisEffect, offsetPos, offsetRot)
     local bonePos = character:getTpBonePos(bone)
     local boneRot = character:getTpBoneRot(bone)
